@@ -1,37 +1,42 @@
 package com.example.abhishek.myapplication;
 
-import android.content.Context;
+import android.app.ProgressDialog;
+import android.content.Intent;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore;
+import android.support.annotation.NonNull;
 import android.support.v4.app.Fragment;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.app.DatePickerDialog;
-import android.app.TimePickerDialog;
-import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
-import android.view.Menu;
-import android.view.MenuItem;
-import android.view.View;
 import android.widget.Button;
 import android.widget.DatePicker;
 import android.widget.EditText;
-import android.widget.TextView;
-import android.widget.TimePicker;
-import android.app.DatePickerDialog;
-import android.app.Dialog;
-import android.widget.Toast;
-//import com.example.abhishek.myapplication.DatePickerFragment;
-import android.widget.AdapterView;
+import android.widget.ImageView;
 import android.widget.ArrayAdapter;
 import android.widget.Spinner;
-import android.app.DialogFragment;
+import android.widget.Toast;
 
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.OnProgressListener;
+import com.google.firebase.storage.StorageReference;
+import com.google.firebase.storage.UploadTask;
+
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
-import java.util.Date;
+
 import java.util.Locale;
+import java.util.UUID;
+
+import static android.app.Activity.RESULT_OK;
 
 
 public class frag_uploadorder extends Fragment  {
@@ -39,6 +44,19 @@ public class frag_uploadorder extends Fragment  {
     // the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
     private static final String ARG_PARAM1 = "param1";
     private static final String ARG_PARAM2 = "param2";
+    private static final int PICK_IMAGE_REQUEST = 1478;
+
+
+    EditText Date, letter_no, subject;
+    private Spinner spinner_select_type,spinner_select_department;
+    private Button browse,upload;
+
+    private DatabaseReference mFirebaseDatabase;
+    private FirebaseDatabase mFirebaseInstance;
+    private StorageReference mStorageRef;
+    private String userId;
+
+    private Uri filePath;
 
 
 
@@ -82,11 +100,105 @@ public class frag_uploadorder extends Fragment  {
         }
     }
 
+    private void chooseImage() {
+        Intent intent = new Intent();
+        intent.setType("image/*");
+        intent.setAction(Intent.ACTION_GET_CONTENT);
+        startActivityForResult(Intent.createChooser(intent, "Select a Document to Upload"), PICK_IMAGE_REQUEST);
+
+
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if(requestCode == PICK_IMAGE_REQUEST && resultCode == RESULT_OK
+                && data != null && data.getData() != null )
+        {
+            filePath = data.getData();
+
+
+        }
+    }
+
+    private void uploadImage() {
+
+        if(filePath != null)
+        {
+            final ProgressDialog progressDialog = new ProgressDialog(getActivity());
+            progressDialog.setTitle("Uploading...");
+            progressDialog.show();
+
+            mStorageRef = FirebaseStorage.getInstance().getReference();
+            StorageReference ref = mStorageRef.child("documents/"+ UUID.randomUUID().toString());
+            ref.putFile(filePath)
+                    .addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
+                        @Override
+                        public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
+                            progressDialog.dismiss();
+                            Toast.makeText(getActivity(), "Uploaded", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .addOnFailureListener(new OnFailureListener() {
+                        @Override
+                        public void onFailure(@NonNull Exception e) {
+                            progressDialog.dismiss();
+                            Toast.makeText(getActivity(), "Failed "+e.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .addOnProgressListener(new OnProgressListener<UploadTask.TaskSnapshot>() {
+                        @Override
+                        public void onProgress(UploadTask.TaskSnapshot taskSnapshot) {
+                            double progress = (100.0*taskSnapshot.getBytesTransferred()/taskSnapshot
+                                    .getTotalByteCount());
+                            progressDialog.setMessage("Uploaded "+(int)progress+"%");
+                        }
+                    });
+        }
+    }
+
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
         // Inflate the layout for this fragment
         View v = inflater.inflate(R.layout.fragment_frag_uploadorder, container, false);
+
+        final EditText date= (EditText) v.findViewById(R.id.date);
+        final EditText letter_no = v.findViewById(R.id.letter_no);
+        final EditText subject = v.findViewById(R.id.subject);
+        Button browse = v.findViewById(R.id.browse);
+        Button upload = v.findViewById(R.id.upload);
+
+
+
+        DatabaseReference mDatabase = FirebaseDatabase.getInstance().getReference("Documents");
+
+
+        upload.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                String Date = date.getText().toString();
+                String Letter_no = letter_no.getText().toString();
+                String Subject = subject.getText().toString();
+                String SpinnerType = spinner_select_type.getSelectedItem().toString();
+                String SpinnerDepartment = spinner_select_department.getSelectedItem().toString();
+
+                userId = mFirebaseDatabase.push().getKey();
+
+                Order order = new Order(Date, Letter_no, Subject, SpinnerType, SpinnerDepartment);
+
+                mFirebaseDatabase.child(userId).setValue(order);
+
+            }
+        });
+
+        browse.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                chooseImage();
+            }
+        });
+
+        
 
         Spinner spinner_select_type = (Spinner) v.findViewById(R.id.spinner_select_type);
         String[] Type_List = new String[]{"--Select Type--", "type1","type2","type3","type4"};
@@ -105,7 +217,7 @@ public class frag_uploadorder extends Fragment  {
 
         final Calendar myCalendar = Calendar.getInstance();
 
-        final EditText date= (EditText) v.findViewById(R.id.date);
+
 
         final  DatePickerDialog.OnDateSetListener date1 = new DatePickerDialog.OnDateSetListener() {
 
@@ -139,27 +251,10 @@ public class frag_uploadorder extends Fragment  {
             }
         });
 
-
-
         return v;
     }
 
-
-
-
-
-
-
-
-
-
-
 }
-
-
-
-
-
 
 
 
